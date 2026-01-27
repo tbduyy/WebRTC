@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebRTC Call</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 20px;
+    }
+    h2, h3 { color: #333; }
+    input, button {
+      padding: 10px;
+      margin: 10px;
+      font-size: 16px;
+    }
+    button {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    #clientList { list-style: none; padding: 0; }
+    #clientList li {
+      background: white;
+      padding: 10px;
+      margin: 5px;
+      cursor: pointer;
+      border-radius: 5px;
+      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+    }
+    #clientList li.selected {
+      outline: 2px solid #28a745;
+    }
+    video {
+      width: 45%;
+      max-height: 300px;
+      margin: 10px;
+      border: 2px solid #333;
+      border-radius: 5px;
+      background: #000;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Nhập tên:</h2>
+  <input type="text" id="nameInput" placeholder="Nhập tên..." />
+  <button id="connectBtn">Kết nối</button>
+
+  <h3>Danh sách thiết bị khả dụng:</h3>
+  <ul id="clientList"></ul>
+
+  <button id="callButton" disabled>Bắt đầu gọi</button>
+  <button id="hangupButton" disabled>Dừng</button>
+
+  <h3>Video</h3>
+  <video id="localVideo" autoplay playsinline muted></video>
+  <video id="remoteVideo" autoplay playsinline></video>
+
+  <script>
+    // ====== WebSocket signaling ======
+    const ws = new WebSocket(`wss://${window.location.hostname}:3000`);
+
+    let localStream = null;
+    let peerConnections = {};   // { [peerName]: RTCPeerConnection }
+    let myName = '';
+    let selectedClient = '';
+    let currentPeer = '';       // đang gọi/đang nói chuyện với ai
+
+    const connectBtn = document.getElementById('connectBtn');
+    const callBtn = document.getElementById('callButton');
+    const hangupBtn = document.getElementById('hangupButton');
+
+    connectBtn.addEventListener('click', register);
+    callBtn.addEventListener('click', startCall);
+    hangupBtn.addEventListener('click', hangup);
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    ws.onerror = (e) => {
+      console.error('WebSocket error', e);
+    };
+
+    ws.onmessage = async (event) => {
+      const message = JSON.parse(event.data);
+
+      if (message.type === 'clientList') {
+        updateClientList(message.clients);
+        return;
+      }
+
+      if (message.type === 'endCall') {
+        // server báo kết thúc: đóng PC + reset UI
+        closeAllConnections(true);
+        return;
+      }
+
+      await handleMessage(message);
+    };
+
+    async function register() {
+      myName = document.getElementById('nameInput').value.trim();
+      if (!myName) return alert("Vui lòng nhập tên!");
+
+      // xin camera/mic trước để tránh lúc có cuộc gọi mới xin quyền bị chậm
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        document.getElementById('localVideo').srcObject = localStream;
+      } catch (err) {
+        console.error(err);
+        return alert("Không truy cập được camera/mic. Hãy cho phép quyền.");
+      }
+
+      ws.send(JSON.stringify({ type: 'register', name: myName }));
+      callBtn.disabled = false;
+    }
+
+    function updateClientList(clients) {
+      const list = document.getElementById('clientList');
+      list.innerHTML = '';
+
+      clients.forEach((name) => {
+        if (name === myName) return;
+
+        const li = document.createElement('li');
+        li.textContent = name;
+
+        if (name === selectedClient) li.classList.add('selected');
+
+        li.onclick = () => selectClient(name);
+        list.appendChild(li);
+      });
+    }
+
+    function selectClient(name) {
+      selectedClient = name;
+
+      // highlight UI
+      document.querySelectorAll('#clientList li').forEach(li => {
+        li.classList.toggle('selected', li.textContent === name);
+      });
+
+      callBtn.disabled = false;
+    }
+
+    async function startCall() {
+      if (!myName) return alert("Bạn cần Kết nối (register) trước!");
+      if (!selectedClient) return alert("Chọn một thiết bị để gọi!");
+      if (!localStream) return alert("Chưa có camera/mic!");
+
+      // Nếu đang có cuộc gọi -> kết thúc trước
+      if (currentPeer) {
+        ws.send(JSON.stringify({ type: 'endCall', sender: myName }));
+      }
+
+      closeAllConnections(false);
+
+      const pc = setupPeerConnection(selectedClient);
+      currentPeer = selectedClient;
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      ws.send(JSON.stringify({
+        type: 'offer',
+        offer,
+        target: selectedClient,
+        sender: myName
+      }));
+
+      hangupBtn.disabled = false;
+    }
+
+    function setupPeerConnection(targetClient) {
+      // Nên có STUN để NAT traversal tốt hơn
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' }
+        ]
+      });
+
+      pc.ontrack = (event) => {
+        document.getElementById('remoteVideo').srcObject = event.streams[0];
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          ws.send(JSON.stringify({
+            type: 'candidate',
+            candidate: event.candidate,
+            target: targetClient,
+            sender: myName
+          }));
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        const st = pc.connectionState;
+        // Nếu rớt kết nối, tự dọn UI cho sạch
+        if (st === 'failed' || st === 'disconnected' || st === 'closed') {
+          // không gửi endCall ở đây để tránh spam, server thường sẽ tự xử lý theo luồng endCall
+          // nhưng UI vẫn dọn
+        }
+      };
+
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+      peerConnections[targetClient] = pc;
+      return pc;
+    }
+
+    async function handleMessage(message) {
+      if (message.type === 'offer') {
+        // Nhận cuộc gọi
+        closeAllConnections(false);
+
+        const acceptCall = confirm(`${message.sender} đang gọi. Bạn có muốn chấp nhận cuộc gọi không?`);
+        if (!acceptCall) {
+          ws.send(JSON.stringify({ type: 'endCall', sender: myName }));
+          return;
+        }
+
+        const pc = setupPeerConnection(message.sender);
+        currentPeer = message.sender;
+
+        await pc.setRemoteDescription(new RTCSessionDescription(message.offer));
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+
+        ws.send(JSON.stringify({
+          type: 'answer',
+          answer,
+          target: message.sender,
+          sender: myName
+        }));
+
+        hangupBtn.disabled = false;
+        return;
+      }
+
+      if (message.type === 'answer') {
+        const pc = peerConnections[message.sender];
+        if (pc) {
+          await pc.setRemoteDescription(new RTCSessionDescription(message.answer));
+        }
+        return;
+      }
+
+      if (message.type === 'candidate') {
+        const pc = peerConnections[message.sender];
+        if (pc) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(message.candidate));
+          } catch (e) {
+            console.warn('addIceCandidate failed:', e);
+          }
+        }
+        return;
+      }
+    }
+
+    function hangup() {
+      if (!myName) return;
+
+      // QUAN TRỌNG: báo server để dọn activeCalls, nếu không sẽ không gọi lại được
+      ws.send(JSON.stringify({ type: 'endCall', sender: myName }));
+
+      closeAllConnections(true);
+    }
+
+    function closeAllConnections(resetRemoteVideo) {
+      for (let target in peerConnections) {
+        try { peerConnections[target].close(); } catch {}
+        delete peerConnections[target];
+      }
+
+      currentPeer = '';
+      hangupBtn.disabled = true;
+
+      if (resetRemoteVideo) {
+        document.getElementById('remoteVideo').srcObject = null;
+      }
+    }
+  </script>
+</body>
+</html>
