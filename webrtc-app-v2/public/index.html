@@ -3,295 +3,1960 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebRTC Call</title>
+  <title>WebRTC Group Call</title>
   <style>
+    /* ============ Reset & Base ============ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface-2: #242836;
+      --border: #2e3348;
+      --text: #e4e6f0;
+      --text-dim: #8b8fa3;
+      --primary: #6c5ce7;
+      --primary-hover: #7d6ff0;
+      --success: #00b894;
+      --danger: #e74c3c;
+      --danger-hover: #c0392b;
+      --warning: #f39c12;
+      --info: #0984e3;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
     body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      background-color: #f4f4f4;
-      margin: 0;
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ============ Layout ============ */
+    .app-container {
+      display: flex;
+      height: 100vh;
+    }
+
+    .sidebar {
+      width: 320px;
+      min-width: 320px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .main-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ============ Sidebar Sections ============ */
+    .sidebar-header {
       padding: 20px;
+      border-bottom: 1px solid var(--border);
+      text-align: center;
     }
-    h2, h3 { color: #333; }
-    input, button {
-      padding: 10px;
-      margin: 10px;
-      font-size: 16px;
+
+    .sidebar-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
     }
-    button {
-      background-color: #28a745;
-      color: white;
+
+    .sidebar-header .subtitle {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .sidebar-section {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .sidebar-section h3 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    .sidebar-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+    }
+
+    /* ============ Forms ============ */
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      padding: 10px 14px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input[type="text"]:focus {
+      border-color: var(--primary);
+    }
+
+    input[type="text"]::placeholder {
+      color: var(--text-dim);
+    }
+
+    /* ============ Buttons ============ */
+    .btn {
+      padding: 10px 16px;
       border: none;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
-    button:disabled {
-      background-color: #ccc;
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+    .btn-primary:hover { background: var(--primary-hover); }
+
+    .btn-success {
+      background: var(--success);
+      color: white;
+    }
+    .btn-success:hover { filter: brightness(1.1); }
+
+    .btn-danger {
+      background: var(--danger);
+      color: white;
+    }
+    .btn-danger:hover { background: var(--danger-hover); }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-outline:hover { background: var(--surface-2); }
+
+    .btn:disabled {
+      opacity: 0.4;
       cursor: not-allowed;
     }
-    #clientList { list-style: none; padding: 0; }
-    #clientList li {
-      background: white;
-      padding: 10px;
-      margin: 5px;
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    .btn-block {
+      width: 100%;
+      justify-content: center;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* ============ Status Badge ============ */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .badge-success { background: rgba(0,184,148,0.15); color: var(--success); }
+    .badge-success .badge-dot { background: var(--success); }
+    .badge-warning { background: rgba(243,156,18,0.15); color: var(--warning); }
+    .badge-warning .badge-dot { background: var(--warning); }
+    .badge-danger { background: rgba(231,76,60,0.15); color: var(--danger); }
+    .badge-danger .badge-dot { background: var(--danger); }
+    .badge-info { background: rgba(9,132,227,0.15); color: var(--info); }
+    .badge-info .badge-dot { background: var(--info); }
+    .badge-default { background: rgba(139,143,163,0.15); color: var(--text-dim); }
+    .badge-default .badge-dot { background: var(--text-dim); }
+
+    /* ============ Member List ============ */
+    .member-list {
+      list-style: none;
+    }
+
+    .member-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .member-item .avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .member-item.me {
+      background: rgba(108,92,231,0.1);
+    }
+
+    .member-item .name {
+      flex: 1;
+    }
+
+    .member-item .me-tag {
+      font-size: 10px;
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    /* ============ Room List ============ */
+    .room-list {
+      list-style: none;
+    }
+
+    .room-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 4px;
+      background: var(--surface-2);
       cursor: pointer;
-      border-radius: 5px;
-      box-shadow: 0 0 5px rgba(0,0,0,0.2);
+      transition: background 0.2s;
     }
-    #clientList li.selected {
-      outline: 2px solid #28a745;
+
+    .room-item:hover {
+      background: var(--border);
     }
-    video {
-      width: 45%;
-      max-height: 300px;
-      margin: 10px;
-      border: 2px solid #333;
-      border-radius: 5px;
+
+    .room-item .room-name {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .room-item .room-count {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    /* ============ Connection Status Bar ============ */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      min-height: 48px;
+    }
+
+    .status-bar .left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .status-bar .right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-dim);
+    }
+
+    .stat-item strong {
+      color: var(--text);
+    }
+
+    /* ============ Video Grid ============ */
+    .video-area {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .video-grid {
+      display: grid;
+      gap: 12px;
+      width: 100%;
+      max-width: 1400px;
+      height: 100%;
+    }
+
+    /* Dynamic grid layout based on participant count */
+    .video-grid.grid-1 { grid-template-columns: 1fr; max-width: 800px; }
+    .video-grid.grid-2 { grid-template-columns: 1fr 1fr; }
+    .video-grid.grid-3 { grid-template-columns: 1fr 1fr; }
+    .video-grid.grid-4 { grid-template-columns: 1fr 1fr; }
+    .video-grid.grid-5,
+    .video-grid.grid-6 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .video-container {
+      position: relative;
       background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      min-height: 200px;
+      aspect-ratio: 16/9;
+    }
+
+    .video-container video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .video-label {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: white;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      backdrop-filter: blur(4px);
+    }
+
+    .video-status {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+    }
+
+    .video-disconnected-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      z-index: 10;
+      backdrop-filter: blur(4px);
+    }
+
+    .disconnected-icon {
+      font-size: 48px;
+      margin-bottom: 12px;
+      animation: pulse 1.5s infinite;
+    }
+
+    .disconnected-text {
+      font-size: 14px;
+      color: #ffa500;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* ============ Call Controls ============ */
+    .call-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 16px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+    }
+
+    .call-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+      font-size: 20px;
+    }
+
+    .call-btn:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .call-btn-start {
+      background: var(--success);
+      color: white;
+      width: 56px;
+      height: 56px;
+    }
+    .call-btn-start:hover:not(:disabled) { filter: brightness(1.15); transform: scale(1.05); }
+
+    .call-btn-end {
+      background: var(--danger);
+      color: white;
+      width: 56px;
+      height: 56px;
+    }
+    .call-btn-end:hover:not(:disabled) { filter: brightness(1.15); transform: scale(1.05); }
+
+    .call-btn-mute {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+    .call-btn-mute:hover:not(:disabled) { background: var(--border); }
+    .call-btn-mute.active { background: var(--danger); color: white; }
+
+    /* ============ Empty/Placeholder States ============ */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-dim);
+      text-align: center;
+      padding: 40px;
+    }
+
+    .empty-state .icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+      opacity: 0.5;
+    }
+
+    .empty-state h3 {
+      font-size: 18px;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .empty-state p {
+      font-size: 14px;
+      max-width: 300px;
+      line-height: 1.5;
+    }
+
+    /* ============ Screens (show/hide) ============ */
+    .screen { display: none; }
+    .screen.active { display: flex; }
+
+    #loginScreen {
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100%;
+      background: var(--bg);
+    }
+
+    .login-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px;
+      width: 380px;
+      text-align: center;
+    }
+
+    .login-card h1 {
+      font-size: 24px;
+      margin-bottom: 6px;
+    }
+
+    .login-card .subtitle {
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-bottom: 28px;
+    }
+
+    .login-card input {
+      width: 100%;
+      margin-bottom: 16px;
+    }
+
+    .login-card .btn {
+      width: 100%;
+      padding: 12px;
+      font-size: 15px;
+    }
+
+    #appScreen {
+      height: 100vh;
+      width: 100%;
+    }
+
+    /* ============ Stats Panel ============ */
+    .stats-panel {
+      padding: 12px 20px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .stats-panel h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .stats-item {
+      font-size: 11px;
+      color: var(--text-dim);
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 8px;
+      background: var(--surface-2);
+      border-radius: 4px;
+    }
+
+    .stats-item .value {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* ============ Logs ============ */
+    .log-panel {
+      max-height: 150px;
+      overflow-y: auto;
+      padding: 8px 20px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+    }
+
+    .log-entry {
+      padding: 2px 0;
+      color: var(--text-dim);
+    }
+
+    .log-entry.info { color: var(--info); }
+    .log-entry.success { color: var(--success); }
+    .log-entry.warning { color: var(--warning); }
+    .log-entry.error { color: var(--danger); }
+
+    /* ============ Scrollbar ============ */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+    /* ============ Toast ============ */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .toast {
+      padding: 12px 20px;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 500;
+      animation: slideIn 0.3s ease, fadeOut 0.3s ease 3.7s;
+      animation-fill-mode: forwards;
+      max-width: 360px;
+    }
+
+    .toast-info { background: var(--info); color: white; }
+    .toast-success { background: var(--success); color: white; }
+    .toast-warning { background: var(--warning); color: white; }
+    .toast-error { background: var(--danger); color: white; }
+
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
     }
   </style>
 </head>
-
 <body>
-  <h2>Nhập tên:</h2>
-  <input type="text" id="nameInput" placeholder="Nhập tên..." />
-  <button id="connectBtn">Kết nối</button>
 
-  <h3>Danh sách thiết bị khả dụng:</h3>
-  <ul id="clientList"></ul>
+  <div class="toast-container" id="toastContainer"></div>
 
-  <button id="callButton" disabled>Bắt đầu gọi</button>
-  <button id="hangupButton" disabled>Dừng</button>
+  <!-- ================== LOGIN SCREEN ================== -->
+  <div id="loginScreen" class="screen active">
+    <div class="login-card">
+      <h1>WebRTC Group Call</h1>
+      <p class="subtitle">STUN/TURN + Room + Mesh Topology</p>
+      <input type="text" id="nameInput" placeholder="Nhập tên (nickname)..." />
+      <button class="btn btn-primary" id="connectBtn">Kết nối</button>
+    </div>
+  </div>
 
-  <h3>Video</h3>
-  <video id="localVideo" autoplay playsinline muted></video>
-  <video id="remoteVideo" autoplay playsinline></video>
+  <!-- ================== MAIN APP SCREEN ================== -->
+  <div id="appScreen" class="screen">
+    <div class="app-container">
+
+      <!-- ===== Sidebar ===== -->
+      <div class="sidebar">
+        <div class="sidebar-header">
+          <h1>WebRTC Group Call</h1>
+          <div class="subtitle" id="userInfo">--</div>
+        </div>
+
+        <!-- Room Controls -->
+        <div class="sidebar-section">
+          <h3>Phòng (Room)</h3>
+          <div id="roomControls">
+            <div class="input-group">
+              <input type="text" id="roomIdInput" placeholder="Room ID..." />
+            </div>
+            <div class="btn-group" style="margin-top:8px;">
+              <button class="btn btn-primary btn-sm" id="createRoomBtn" style="flex:1;">Tạo phòng</button>
+              <button class="btn btn-success btn-sm" id="joinRoomBtn" style="flex:1;">Tham gia</button>
+            </div>
+          </div>
+
+          <!-- Active Room Info -->
+          <div id="activeRoomInfo" style="display:none; margin-top:12px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+              <span style="font-size:14px; font-weight:600;" id="currentRoomName">--</span>
+              <button class="btn btn-outline btn-sm" id="leaveRoomBtn">Rời phòng</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Room Members -->
+        <div class="sidebar-section" id="membersSection" style="display:none;">
+          <h3>Thành viên (<span id="memberCount">0</span>)</h3>
+          <ul class="member-list" id="memberList"></ul>
+        </div>
+
+        <!-- Available Rooms -->
+        <div class="sidebar-scroll">
+          <h3 style="font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--text-dim); margin-bottom:12px;">
+            Phòng có sẵn
+          </h3>
+          <ul class="room-list" id="roomList">
+            <li style="color:var(--text-dim); font-size:13px; padding:12px; text-align:center;">
+              Chưa có phòng nào
+            </li>
+          </ul>
+        </div>
+
+        <!-- TURN Status (auto-configured from server) -->
+        <div class="sidebar-section" style="padding: 12px 20px;">
+          <div id="turnStatus" style="padding: 8px 12px; border-radius: 6px; font-size: 12px; background: rgba(16, 185, 129, 0.1); color: #10b981;">
+            <span style="margin-right: 6px;">🔒</span>
+            <span>TURN Server: Đang chờ kết nối...</span>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-panel" id="statsPanel" style="display:none;">
+          <h4>Thống kê kết nối</h4>
+          <div class="stats-grid" id="statsGrid"></div>
+        </div>
+      </div>
+
+      <!-- ===== Main Area ===== -->
+      <div class="main-area">
+        <!-- Status Bar -->
+        <div class="status-bar">
+          <div class="left">
+            <span id="connectionBadge" class="badge badge-default">
+              <span class="badge-dot"></span> Chưa gọi
+            </span>
+            <span id="candidateType" class="stat-item" style="display:none;">
+              Loại kết nối: <strong id="candidateTypeValue">--</strong>
+            </span>
+          </div>
+          <div class="right">
+            <span class="stat-item" id="callDuration" style="display:none;">
+              Thời gian: <strong id="callDurationValue">00:00</strong>
+            </span>
+          </div>
+        </div>
+
+        <!-- Video Area -->
+        <div class="video-area">
+          <div id="emptyVideoState" class="empty-state">
+            <div class="icon">📹</div>
+            <h3>Chưa có cuộc gọi</h3>
+            <p>Tham gia một phòng và nhấn "Bắt đầu gọi nhóm" để bắt đầu cuộc gọi video với mọi người.</p>
+          </div>
+          <div class="video-grid grid-1" id="videoGrid" style="display:none;"></div>
+        </div>
+
+        <!-- Call Controls -->
+        <div class="call-controls">
+          <button class="call-btn call-btn-mute" id="toggleAudioBtn" title="Tắt/Bật mic" disabled>🎤</button>
+          <button class="call-btn call-btn-mute" id="toggleVideoBtn" title="Tắt/Bật camera" disabled>📷</button>
+          <button class="call-btn call-btn-start" id="startCallBtn" title="Bắt đầu gọi nhóm" disabled>📞</button>
+          <button class="call-btn call-btn-end" id="hangupBtn" title="Dừng cuộc gọi" disabled>📴</button>
+        </div>
+
+        <!-- Log Panel -->
+        <div class="log-panel" id="logPanel"></div>
+      </div>
+    </div>
+  </div>
 
   <script>
-    // ====== WebSocket signaling ======
-    const ws = new WebSocket(`wss://${window.location.hostname}:3000`);
+    // ============================================================
+    // Configuration & State
+    // ============================================================
 
+    // Auto-detect WebSocket URL based on current page URL
+    const getSignalingUrl = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.hostname;
+      const port = window.location.port;
+      
+      // If no port specified (standard 80/443), don't add port to URL
+      if (!port || port === '443' || port === '80') {
+        return `${protocol}//${host}`;
+      }
+      return `${protocol}//${host}:${port}`;
+    };
+    const SIGNALING_URL = getSignalingUrl();
+
+    let ws = null;
     let localStream = null;
-    let peerConnections = {};   // { [peerName]: RTCPeerConnection }
     let myName = '';
-    let selectedClient = '';
-    let currentPeer = '';       // đang gọi/đang nói chuyện với ai
+    let currentRoomId = '';
+    let inCall = false;
+    let callStartTime = null;
+    let callTimer = null;
 
-    const connectBtn = document.getElementById('connectBtn');
-    const callBtn = document.getElementById('callButton');
-    const hangupBtn = document.getElementById('hangupButton');
+    // peerName → RTCPeerConnection
+    const peerConnections = {};
 
+    // ICE Servers config (will be updated from server)
+    let iceServers = [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' }
+    ];
+    
+    // Flag to track if we received ICE servers from server
+    let iceServersFromServer = false;
+
+    // Track audio/video mute
+    let audioMuted = false;
+    let videoMuted = false;
+
+    // ============================================================
+    // DOM Elements
+    // ============================================================
+    const $ = (id) => document.getElementById(id);
+
+    const connectBtn = $('connectBtn');
+    const nameInput = $('nameInput');
+    const createRoomBtn = $('createRoomBtn');
+    const joinRoomBtn = $('joinRoomBtn');
+    const leaveRoomBtn = $('leaveRoomBtn');
+    const startCallBtn = $('startCallBtn');
+    const hangupBtn = $('hangupBtn');
+    const toggleAudioBtn = $('toggleAudioBtn');
+    const toggleVideoBtn = $('toggleVideoBtn');
+
+    // ============================================================
+    // Event Listeners
+    // ============================================================
     connectBtn.addEventListener('click', register);
-    callBtn.addEventListener('click', startCall);
+    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') register(); });
+    createRoomBtn.addEventListener('click', () => roomAction('createRoom'));
+    joinRoomBtn.addEventListener('click', () => roomAction('joinRoom'));
+    leaveRoomBtn.addEventListener('click', leaveRoom);
+    startCallBtn.addEventListener('click', startGroupCall);
     hangupBtn.addEventListener('click', hangup);
+    toggleAudioBtn.addEventListener('click', toggleAudio);
+    toggleVideoBtn.addEventListener('click', toggleVideo);
 
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-    };
+    // ============================================================
+    // WebSocket Connection
+    // ============================================================
 
-    ws.onerror = (e) => {
-      console.error('WebSocket error', e);
-    };
+    // WebSocket reconnection settings
+    let wsReconnectAttempts = 0;
+    const WS_MAX_RECONNECT_ATTEMPTS = 5;
+    const WS_RECONNECT_DELAY = 2000; // 2 seconds
+    let wsReconnectTimeout = null;
 
-    ws.onmessage = async (event) => {
-      const message = JSON.parse(event.data);
+    function connectWebSocket() {
+      ws = new WebSocket(SIGNALING_URL);
 
-      if (message.type === 'clientList') {
-        updateClientList(message.clients);
-        return;
-      }
+      ws.onopen = () => {
+        addLog('WebSocket connected', 'success');
+        wsReconnectAttempts = 0; // Reset reconnect counter on successful connection
+        
+        // Re-register if we had a name (reconnection scenario)
+        if (myName && $('appScreen').classList.contains('active')) {
+          addLog('Đang đăng ký lại sau khi reconnect...', 'info');
+          ws.send(JSON.stringify({ type: 'register', name: myName }));
+          
+          // Re-join room if we were in one
+          if (currentRoomId) {
+            setTimeout(() => {
+              wsSend({ type: 'joinRoom', roomId: currentRoomId, name: myName });
+            }, 500);
+          }
+        }
+      };
 
-      if (message.type === 'endCall') {
-        // server báo kết thúc: đóng PC + reset UI
-        closeAllConnections(true);
-        return;
-      }
+      ws.onerror = (e) => {
+        addLog('WebSocket error', 'error');
+        console.error('WebSocket error', e);
+      };
 
-      await handleMessage(message);
-    };
+      ws.onclose = () => {
+        addLog('WebSocket disconnected', 'warning');
+        
+        // Attempt reconnection if we were logged in
+        if (myName && $('appScreen').classList.contains('active')) {
+          if (wsReconnectAttempts < WS_MAX_RECONNECT_ATTEMPTS) {
+            wsReconnectAttempts++;
+            const delay = WS_RECONNECT_DELAY * wsReconnectAttempts;
+            showToast(`Mất kết nối. Đang thử kết nối lại (${wsReconnectAttempts}/${WS_MAX_RECONNECT_ATTEMPTS})...`, 'warning');
+            addLog(`Thử kết nối lại sau ${delay/1000}s...`, 'warning');
+            
+            wsReconnectTimeout = setTimeout(() => {
+              connectWebSocket();
+            }, delay);
+          } else {
+            showToast('Không thể kết nối lại server. Vui lòng tải lại trang.', 'error');
+            addLog('Đã vượt quá số lần thử kết nối lại', 'error');
+          }
+        } else {
+          showToast('Mất kết nối tới server', 'error');
+        }
+      };
 
-    async function register() {
-      myName = document.getElementById('nameInput').value.trim();
-      if (!myName) return alert("Vui lòng nhập tên!");
-
-      // xin camera/mic trước để tránh lúc có cuộc gọi mới xin quyền bị chậm
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        document.getElementById('localVideo').srcObject = localStream;
-      } catch (err) {
-        console.error(err);
-        return alert("Không truy cập được camera/mic. Hãy cho phép quyền.");
-      }
-
-      ws.send(JSON.stringify({ type: 'register', name: myName }));
-      callBtn.disabled = false;
+      ws.onmessage = async (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          await handleServerMessage(msg);
+        } catch (err) {
+          console.error('Message parse error:', err);
+        }
+      };
     }
 
-    function updateClientList(clients) {
-      const list = document.getElementById('clientList');
+    async function handleServerMessage(msg) {
+      switch (msg.type) {
+        case 'registered':
+          addLog(`Đã đăng ký: ${msg.name}`, 'success');
+          
+          // Update ICE servers if provided by server
+          if (msg.iceServers && msg.iceServers.length > 0) {
+            iceServers = msg.iceServers;
+            iceServersFromServer = true;
+            
+            // Count TURN servers
+            const turnCount = msg.iceServers.filter(s => {
+              const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+              return urls.some(url => url.startsWith('turn:') || url.startsWith('turns:'));
+            }).length;
+            
+            addLog(`Server cung cấp ${msg.iceServers.length} ICE servers (${turnCount} TURN)`, 'success');
+            updateTurnStatus(turnCount, 'success');
+          } else {
+            addLog('Server không cung cấp TURN, chỉ dùng STUN', 'warning');
+            updateTurnStatus(0, 'warning');
+          }
+          break;
+
+        case 'error':
+          showToast(msg.message, 'error');
+          addLog(`Lỗi: ${msg.message}`, 'error');
+          break;
+
+        case 'roomList':
+          updateRoomList(msg.rooms);
+          break;
+
+        case 'roomJoined':
+          onRoomJoined(msg.roomId, msg.callActive);
+          break;
+
+        case 'roomLeft':
+          onRoomLeft();
+          break;
+
+        case 'roomMembers':
+          updateMemberList(msg.members, msg.callActive);
+          break;
+
+        case 'startGroupCall':
+          onStartGroupCall(msg);
+          break;
+
+        case 'offer':
+          await handleOffer(msg);
+          break;
+
+        case 'answer':
+          await handleAnswer(msg);
+          break;
+
+        case 'candidate':
+          await handleCandidate(msg);
+          break;
+
+        case 'memberLeft':
+          onMemberLeft(msg.name);
+          break;
+
+        case 'peerEndedCall':
+          onPeerEndedCall(msg.name);
+          break;
+
+        case 'groupCallEnded':
+          onGroupCallEnded(msg.endedBy);
+          break;
+
+        default:
+          console.log('Unknown message:', msg);
+      }
+    }
+
+    // ============================================================
+    // Registration
+    // ============================================================
+
+    async function register() {
+      myName = nameInput.value.trim();
+      if (!myName) {
+        showToast('Vui lòng nhập tên!', 'warning');
+        return;
+      }
+
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      } catch (err) {
+        console.error('Media error:', err);
+        showToast('Không thể truy cập camera/mic. Hãy cho phép quyền.', 'error');
+        return;
+      }
+
+      connectWebSocket();
+
+      // Wait for WS to open then register
+      await new Promise((resolve) => {
+        const check = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 100);
+      });
+
+      ws.send(JSON.stringify({ type: 'register', name: myName }));
+
+      // Switch to app screen
+      $('loginScreen').classList.remove('active');
+      $('appScreen').classList.add('active');
+      $('userInfo').textContent = `Xin chào, ${myName}`;
+
+      addLog(`Đã kết nối với tên: ${myName}`, 'success');
+    }
+
+    // ============================================================
+    // Room Management
+    // ============================================================
+
+    function roomAction(action) {
+      const roomId = $('roomIdInput').value.trim();
+      if (!roomId) {
+        showToast('Vui lòng nhập Room ID!', 'warning');
+        return;
+      }
+      wsSend({ type: action, roomId, name: myName });
+    }
+
+    function onRoomJoined(roomId, callActive) {
+      currentRoomId = roomId;
+
+      // UI updates
+      $('roomControls').style.display = 'none';
+      $('activeRoomInfo').style.display = 'block';
+      $('currentRoomName').textContent = `Phòng: ${roomId}`;
+      $('membersSection').style.display = 'block';
+      startCallBtn.disabled = false;
+
+      addLog(`Đã vào phòng: ${roomId}`, 'success');
+      showToast(`Đã vào phòng "${roomId}"`, 'success');
+
+      // If call is active, auto-join
+      if (callActive) {
+        addLog('Phòng đang có cuộc gọi, tự động tham gia...', 'info');
+        // Will handle via roomMembers + startGroupCall
+      }
+    }
+
+    function onRoomLeft() {
+      // Clean up call
+      if (inCall) {
+        endCallCleanup();
+      }
+
+      currentRoomId = '';
+
+      // UI reset
+      $('roomControls').style.display = 'block';
+      $('activeRoomInfo').style.display = 'none';
+      $('membersSection').style.display = 'none';
+      startCallBtn.disabled = true;
+      hangupBtn.disabled = true;
+
+      addLog('Đã rời phòng', 'info');
+    }
+
+    function leaveRoom() {
+      if (inCall) {
+        hangup();
+      }
+      wsSend({ type: 'leaveRoom', roomId: currentRoomId, sender: myName });
+    }
+
+    function updateRoomList(rooms) {
+      const list = $('roomList');
+      if (!rooms || rooms.length === 0) {
+        list.innerHTML = '<li style="color:var(--text-dim); font-size:13px; padding:12px; text-align:center;">Chưa có phòng nào</li>';
+        return;
+      }
+
       list.innerHTML = '';
-
-      clients.forEach((name) => {
-        if (name === myName) return;
-
+      rooms.forEach((room) => {
         const li = document.createElement('li');
-        li.textContent = name;
-
-        if (name === selectedClient) li.classList.add('selected');
-
-        li.onclick = () => selectClient(name);
+        li.className = 'room-item';
+        li.innerHTML = `
+          <div>
+            <div class="room-name">${room.roomId}</div>
+            <div class="room-count">${room.memberCount} thành viên ${room.callActive ? '• Đang gọi' : ''}</div>
+          </div>
+        `;
+        li.onclick = () => {
+          $('roomIdInput').value = room.roomId;
+        };
         list.appendChild(li);
       });
     }
 
-    function selectClient(name) {
-      selectedClient = name;
+    function updateMemberList(members, callActive) {
+      $('memberCount').textContent = members.length;
 
-      // highlight UI
-      document.querySelectorAll('#clientList li').forEach(li => {
-        li.classList.toggle('selected', li.textContent === name);
+      const list = $('memberList');
+      list.innerHTML = '';
+
+      members.forEach((name) => {
+        const li = document.createElement('li');
+        li.className = `member-item ${name === myName ? 'me' : ''}`;
+        const initial = name.charAt(0).toUpperCase();
+        li.innerHTML = `
+          <div class="avatar">${initial}</div>
+          <span class="name">${name}</span>
+          ${name === myName ? '<span class="me-tag">Bạn</span>' : ''}
+        `;
+        list.appendChild(li);
       });
 
-      callBtn.disabled = false;
-    }
-
-    async function startCall() {
-      if (!myName) return alert("Bạn cần Kết nối (register) trước!");
-      if (!selectedClient) return alert("Chọn một thiết bị để gọi!");
-      if (!localStream) return alert("Chưa có camera/mic!");
-
-      // Nếu đang có cuộc gọi -> kết thúc trước
-      if (currentPeer) {
-        ws.send(JSON.stringify({ type: 'endCall', sender: myName }));
+      // Enable/disable start call button
+      // Allow starting call if: 2+ members AND (not in call OR call is active on server)
+      if (members.length >= 2) {
+        // Enable if not in call, or if call is active but we're not connected to everyone
+        if (!inCall) {
+          startCallBtn.disabled = false;
+        } else if (callActive) {
+          // Check if we need to reconnect to anyone
+          const otherMembers = members.filter(n => n !== myName);
+          const needsReconnect = otherMembers.some(name => {
+            const pc = peerConnections[name];
+            return !pc || pc.connectionState === 'closed' || pc.connectionState === 'failed';
+          });
+          if (needsReconnect) {
+            startCallBtn.disabled = false;
+          }
+        }
       }
 
-      closeAllConnections(false);
-
-      const pc = setupPeerConnection(selectedClient);
-      currentPeer = selectedClient;
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      ws.send(JSON.stringify({
-        type: 'offer',
-        offer,
-        target: selectedClient,
-        sender: myName
-      }));
-
-      hangupBtn.disabled = false;
+      // If a call is active on server and we're in call, connect to new/disconnected members
+      if (callActive && inCall) {
+        members.forEach((name) => {
+          if (name !== myName) {
+            const existingPC = peerConnections[name];
+            const needNewConnection = !existingPC || 
+              existingPC.connectionState === 'closed' || 
+              existingPC.connectionState === 'failed';
+            
+            if (needNewConnection) {
+              addLog(`Kết nối tới thành viên: ${name}`, 'info');
+              createPeerConnectionAndOffer(name);
+            }
+          }
+        });
+      }
     }
 
-    function setupPeerConnection(targetClient) {
-      // Nên có STUN để NAT traversal tốt hơn
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' }
-        ]
+    // ============================================================
+    // Group Call - Mesh Topology
+    // ============================================================
+
+    function startGroupCall() {
+      if (!currentRoomId) {
+        showToast('Bạn cần vào phòng trước!', 'warning');
+        return;
+      }
+
+      addLog('Bắt đầu gọi nhóm...', 'info');
+      wsSend({ type: 'startGroupCall', roomId: currentRoomId, sender: myName });
+    }
+
+    function onStartGroupCall(msg) {
+      // Reset call timer if already in call (someone rejoined)
+      if (!inCall) {
+        callStartTime = Date.now();
+        startCallTimer();
+      }
+      
+      inCall = true;
+      startCallBtn.disabled = true;
+      hangupBtn.disabled = false;
+      toggleAudioBtn.disabled = false;
+      toggleVideoBtn.disabled = false;
+
+      showVideoGrid();
+      addLocalVideo();
+
+      // Create PC to every other member (mesh)
+      const others = msg.members.filter(n => n !== myName);
+      addLog(`Gọi nhóm mesh: ${others.length} peer(s)`, 'info');
+
+      // Create connections to all peers we don't have yet
+      // Or recreate if connection is closed/failed
+      others.forEach((name) => {
+        const existingPC = peerConnections[name];
+        const needNewConnection = !existingPC || 
+          existingPC.connectionState === 'closed' || 
+          existingPC.connectionState === 'failed';
+        
+        if (needNewConnection) {
+          addLog(`Tạo kết nối mới với ${name}`, 'info');
+          
+          // Initiator logic: person with "lower" name sends offer
+          if (myName < name) {
+            createPeerConnectionAndOffer(name);
+          } else {
+            // They will create offer to me; just set up PC to be ready
+            setupPeerConnection(name);
+          }
+        }
       });
 
-      pc.ontrack = (event) => {
-        document.getElementById('remoteVideo').srcObject = event.streams[0];
-      };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          ws.send(JSON.stringify({
-            type: 'candidate',
-            candidate: event.candidate,
-            target: targetClient,
-            sender: myName
-          }));
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        const st = pc.connectionState;
-        // Nếu rớt kết nối, tự dọn UI cho sạch
-        if (st === 'failed' || st === 'disconnected' || st === 'closed') {
-          // không gửi endCall ở đây để tránh spam, server thường sẽ tự xử lý theo luồng endCall
-          // nhưng UI vẫn dọn
-        }
-      };
-
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-      peerConnections[targetClient] = pc;
-      return pc;
+      updateConnectionBadge('connecting');
+      showToast('Đang bắt đầu cuộc gọi nhóm...', 'info');
     }
 
-    async function handleMessage(message) {
-      if (message.type === 'offer') {
-        // Nhận cuộc gọi
-        closeAllConnections(false);
+    async function createPeerConnectionAndOffer(targetName) {
+      const pc = setupPeerConnection(targetName);
 
-        const acceptCall = confirm(`${message.sender} đang gọi. Bạn có muốn chấp nhận cuộc gọi không?`);
-        if (!acceptCall) {
-          ws.send(JSON.stringify({ type: 'endCall', sender: myName }));
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        wsSend({
+          type: 'offer',
+          roomId: currentRoomId,
+          sender: myName,
+          target: targetName,
+          offer
+        });
+
+        addLog(`Sent offer → ${targetName}`, 'info');
+      } catch (err) {
+        addLog(`Offer error → ${targetName}: ${err.message}`, 'error');
+      }
+    }
+
+    function setupPeerConnection(targetName) {
+      // Close existing if any
+      if (peerConnections[targetName]) {
+        try { peerConnections[targetName].close(); } catch {}
+      }
+
+      // Check if force relay mode is enabled
+      const forceRelay = $('forceRelay')?.checked || false;
+      const rtcConfig = {
+        iceServers,
+        iceTransportPolicy: forceRelay ? 'relay' : 'all'
+      };
+
+      if (forceRelay) {
+        addLog('Force TURN mode enabled - chỉ dùng relay', 'warning');
+      }
+
+      const pc = new RTCPeerConnection(rtcConfig);
+      peerConnections[targetName] = pc;
+
+      // Add local tracks
+      if (localStream) {
+        localStream.getTracks().forEach(track => {
+          pc.addTrack(track, localStream);
+        });
+      }
+
+      // ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          // Log candidate type for debugging
+          const candidateStr = event.candidate.candidate;
+          let candidateType = 'unknown';
+          if (candidateStr.includes('typ host')) candidateType = 'host';
+          else if (candidateStr.includes('typ srflx')) candidateType = 'srflx (STUN)';
+          else if (candidateStr.includes('typ relay')) candidateType = 'relay (TURN)';
+          else if (candidateStr.includes('typ prflx')) candidateType = 'prflx';
+          
+          addLog(`ICE candidate [${targetName}]: ${candidateType}`, 'info');
+          
+          wsSend({
+            type: 'candidate',
+            roomId: currentRoomId,
+            sender: myName,
+            target: targetName,
+            candidate: event.candidate
+          });
+        }
+      };
+      
+      // ICE gathering state - check if we got TURN candidates
+      pc.onicegatheringstatechange = () => {
+        addLog(`ICE gathering [${targetName}]: ${pc.iceGatheringState}`, 'info');
+        if (pc.iceGatheringState === 'complete') {
+          // Check if we have any relay candidates
+          pc.getStats().then(stats => {
+            let hasRelay = false;
+            stats.forEach(report => {
+              if (report.type === 'local-candidate' && report.candidateType === 'relay') {
+                hasRelay = true;
+              }
+            });
+            if (!hasRelay) {
+              addLog(`⚠️ Không có TURN candidate - TURN server có thể không hoạt động`, 'warning');
+            }
+          });
+        }
+      };
+
+      // Remote tracks
+      pc.ontrack = (event) => {
+        addLog(`Received track from ${targetName}`, 'success');
+        addRemoteVideo(targetName, event.streams[0]);
+      };
+
+      // Connection state
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        addLog(`PC [${targetName}] connectionState: ${state}`, state === 'connected' ? 'success' : 'info');
+
+        if (state === 'connected') {
+          updateConnectionBadge('connected');
+          getConnectionStats(targetName, pc);
+        } else if (state === 'failed') {
+          addLog(`Kết nối tới ${targetName} thất bại. Thử TURN...`, 'warning');
+          updateConnectionBadge('failed');
+          // Remove video when connection failed
+          removeRemoteVideo(targetName);
+          showToast(`Mất kết nối với ${targetName}`, 'error');
+        } else if (state === 'disconnected') {
+          updateConnectionBadge('disconnected');
+          // Show disconnected overlay on video
+          markVideoDisconnected(targetName);
+        } else if (state === 'closed') {
+          // Remove video when connection closed
+          removeRemoteVideo(targetName);
+          updateGridLayout();
+        }
+      };
+
+      // ICE connection state with debounced restart
+      let iceRestartTimeout = null;
+      let iceRestartInProgress = false;
+      
+      pc.oniceconnectionstatechange = async () => {
+        const state = pc.iceConnectionState;
+        addLog(`PC [${targetName}] iceConnectionState: ${state}`, 'info');
+
+        // Clear pending restart if connection recovered
+        if (state === 'connected' || state === 'completed') {
+          if (iceRestartTimeout) {
+            clearTimeout(iceRestartTimeout);
+            iceRestartTimeout = null;
+          }
+          iceRestartInProgress = false;
+          addLog(`Kết nối với ${targetName} đã phục hồi`, 'success');
+          // Clear disconnected overlay when reconnected
+          clearVideoDisconnectedOverlay(targetName);
           return;
         }
 
-        const pc = setupPeerConnection(message.sender);
-        currentPeer = message.sender;
+        if ((state === 'failed' || state === 'disconnected') && !iceRestartInProgress) {
+          // Only the "impolite" peer (alphabetically larger name) initiates ICE restart
+          // This prevents both peers from restarting simultaneously
+          const shouldInitiateRestart = myName > targetName;
+          
+          if (!shouldInitiateRestart) {
+            addLog(`ICE ${state} với ${targetName} - đợi họ ICE restart`, 'info');
+            return;
+          }
+          
+          // Debounce: wait 2 seconds before ICE restart (network might recover)
+          const delay = state === 'disconnected' ? 2000 : 500;
+          
+          if (iceRestartTimeout) clearTimeout(iceRestartTimeout);
+          
+          iceRestartTimeout = setTimeout(async () => {
+            if (iceRestartInProgress) return;
+            
+            // Double check connection state hasn't recovered
+            if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+              addLog(`Kết nối với ${targetName} đã phục hồi, bỏ qua ICE restart`, 'info');
+              return;
+            }
+            
+            iceRestartInProgress = true;
+            
+            addLog(`ICE ${state} - đang thử ICE restart...`, 'warning');
+            showToast(`Mạng thay đổi, đang kết nối lại với ${targetName}...`, 'warning');
+            
+            try {
+              const offer = await pc.createOffer({ iceRestart: true });
+              await pc.setLocalDescription(offer);
+              wsSend({
+                type: 'offer',
+                roomId: currentRoomId,
+                sender: myName,
+                target: targetName,
+                offer: offer
+              });
+              addLog(`ICE restart offer sent → ${targetName}`, 'info');
+            } catch (err) {
+              addLog(`ICE restart failed: ${err.message}`, 'error');
+              iceRestartInProgress = false;
+            }
+          }, delay);
+        }
+      };
 
-        await pc.setRemoteDescription(new RTCSessionDescription(message.offer));
+      return pc;
+    }
 
+    // ============================================================
+    // Signaling Handlers
+    // ============================================================
+
+    async function handleOffer(msg) {
+      addLog(`Received offer ← ${msg.sender}`, 'info');
+
+      // Make sure we are in call mode
+      if (!inCall) {
+        inCall = true;
+        callStartTime = Date.now();
+        startCallTimer();
+        startCallBtn.disabled = true;
+        hangupBtn.disabled = false;
+        toggleAudioBtn.disabled = false;
+        toggleVideoBtn.disabled = false;
+        showVideoGrid();
+        addLocalVideo();
+      }
+
+      let pc = peerConnections[msg.sender];
+      if (!pc) {
+        pc = setupPeerConnection(msg.sender);
+      }
+
+      try {
+        // Handle glare (offer collision) - "polite peer" pattern
+        // If we're in the middle of making an offer, we need to decide who wins
+        const offerCollision = (pc.signalingState === 'have-local-offer');
+        
+        // "Polite peer" = the one with alphabetically smaller name yields
+        const polite = myName < msg.sender;
+        
+        if (offerCollision) {
+          if (polite) {
+            // We're polite, so we rollback our offer and accept theirs
+            addLog(`Offer collision với ${msg.sender} - rollback offer của mình`, 'warning');
+            await pc.setLocalDescription({ type: 'rollback' });
+          } else {
+            // We're impolite, ignore their offer (they should accept ours)
+            addLog(`Offer collision với ${msg.sender} - bỏ qua offer của họ`, 'warning');
+            return;
+          }
+        }
+        
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
-        ws.send(JSON.stringify({
+        wsSend({
           type: 'answer',
-          answer,
-          target: message.sender,
-          sender: myName
-        }));
+          roomId: currentRoomId,
+          sender: myName,
+          target: msg.sender,
+          answer
+        });
 
-        hangupBtn.disabled = false;
-        return;
+        addLog(`Sent answer → ${msg.sender}`, 'info');
+      } catch (err) {
+        addLog(`Answer error for ${msg.sender}: ${err.message}`, 'error');
       }
+    }
 
-      if (message.type === 'answer') {
-        const pc = peerConnections[message.sender];
-        if (pc) {
-          await pc.setRemoteDescription(new RTCSessionDescription(message.answer));
-        }
-        return;
-      }
-
-      if (message.type === 'candidate') {
-        const pc = peerConnections[message.sender];
-        if (pc) {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(message.candidate));
-          } catch (e) {
-            console.warn('addIceCandidate failed:', e);
+    async function handleAnswer(msg) {
+      addLog(`Received answer ← ${msg.sender}`, 'info');
+      const pc = peerConnections[msg.sender];
+      if (pc) {
+        try {
+          // Only set remote description if we're expecting an answer
+          if (pc.signalingState !== 'have-local-offer') {
+            addLog(`Bỏ qua answer từ ${msg.sender} - không đang chờ answer (state: ${pc.signalingState})`, 'warning');
+            return;
           }
+          await pc.setRemoteDescription(new RTCSessionDescription(msg.answer));
+        } catch (err) {
+          addLog(`SetRemoteDesc error: ${err.message}`, 'error');
         }
-        return;
+      }
+    }
+
+    async function handleCandidate(msg) {
+      const pc = peerConnections[msg.sender];
+      if (pc) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
+        } catch (err) {
+          // Candidate errors are common and usually harmless
+          console.warn('addIceCandidate error:', err);
+        }
+      }
+    }
+
+    // ============================================================
+    // Member Left / Call End
+    // ============================================================
+
+    function onMemberLeft(name) {
+      addLog(`${name} đã rời phòng`, 'warning');
+      showToast(`${name} đã rời phòng`, 'warning');
+      closePeerConnection(name);
+      removeRemoteVideo(name);
+      updateGridLayout();
+
+      // Kiểm tra nếu không còn ai trong cuộc gọi
+      checkIfCallShouldEnd();
+    }
+
+    function onPeerEndedCall(name) {
+      addLog(`${name} đã dừng cuộc gọi`, 'info');
+      showToast(`${name} đã rời cuộc gọi`, 'info');
+      closePeerConnection(name);
+      removeRemoteVideo(name);
+      updateGridLayout();
+
+      // Kiểm tra nếu không còn ai trong cuộc gọi (chỉ còn mình)
+      checkIfCallShouldEnd();
+    }
+
+    function onGroupCallEnded(endedBy) {
+      addLog(`Cuộc gọi nhóm kết thúc bởi ${endedBy}`, 'warning');
+      showToast('Cuộc gọi nhóm đã kết thúc', 'info');
+      endCallCleanup();
+    }
+
+    function checkIfCallShouldEnd() {
+      // Nếu không còn peer connection nào (chỉ còn mình)
+      const peerCount = Object.keys(peerConnections).length;
+      if (peerCount === 0 && inCall) {
+        addLog('Không còn ai trong cuộc gọi, tự động kết thúc...', 'info');
+        showToast('Cuộc gọi kết thúc - không còn ai tham gia', 'info');
+        endCallCleanup();
       }
     }
 
     function hangup() {
-      if (!myName) return;
+      if (!inCall) return;
 
-      // QUAN TRỌNG: báo server để dọn activeCalls, nếu không sẽ không gọi lại được
-      ws.send(JSON.stringify({ type: 'endCall', sender: myName }));
-
-      closeAllConnections(true);
+      addLog('Dừng cuộc gọi...', 'info');
+      // Chỉ gửi endCall cho chính mình, KHÔNG kết thúc cuộc gọi của người khác
+      wsSend({ type: 'endCall', roomId: currentRoomId, sender: myName });
+      endCallCleanup();
     }
 
-    function closeAllConnections(resetRemoteVideo) {
-      for (let target in peerConnections) {
-        try { peerConnections[target].close(); } catch {}
-        delete peerConnections[target];
+    function endCallCleanup() {
+      inCall = false;
+
+      // Close all peer connections
+      for (const name in peerConnections) {
+        closePeerConnection(name);
       }
 
-      currentPeer = '';
+      // Stop timer
+      if (callTimer) {
+        clearInterval(callTimer);
+        callTimer = null;
+      }
+
+      // Reset UI
+      hideVideoGrid();
+      startCallBtn.disabled = !currentRoomId;
       hangupBtn.disabled = true;
+      toggleAudioBtn.disabled = true;
+      toggleVideoBtn.disabled = true;
 
-      if (resetRemoteVideo) {
-        document.getElementById('remoteVideo').srcObject = null;
+      updateConnectionBadge('idle');
+      $('candidateType').style.display = 'none';
+      $('callDuration').style.display = 'none';
+      $('statsPanel').style.display = 'none';
+
+      addLog('Cuộc gọi đã kết thúc', 'info');
+    }
+
+    function closePeerConnection(name) {
+      const pc = peerConnections[name];
+      if (pc) {
+        try { pc.close(); } catch {}
+        delete peerConnections[name];
       }
+    }
+
+    // ============================================================
+    // Video Grid Management
+    // ============================================================
+
+    function showVideoGrid() {
+      $('emptyVideoState').style.display = 'none';
+      $('videoGrid').style.display = 'grid';
+    }
+
+    function hideVideoGrid() {
+      $('videoGrid').innerHTML = '';
+      $('videoGrid').style.display = 'none';
+      $('emptyVideoState').style.display = 'flex';
+    }
+
+    function addLocalVideo() {
+      const grid = $('videoGrid');
+
+      // Remove existing local
+      const existing = document.getElementById('video-local');
+      if (existing) existing.remove();
+
+      const container = document.createElement('div');
+      container.className = 'video-container';
+      container.id = 'video-local';
+
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      video.srcObject = localStream;
+
+      const label = document.createElement('div');
+      label.className = 'video-label';
+      label.textContent = `${myName} (Bạn)`;
+
+      container.appendChild(video);
+      container.appendChild(label);
+      grid.insertBefore(container, grid.firstChild);
+
+      updateGridLayout();
+    }
+
+    function addRemoteVideo(name, stream) {
+      const grid = $('videoGrid');
+
+      // Remove existing for this peer
+      const existing = document.getElementById(`video-${name}`);
+      if (existing) {
+        const oldVideo = existing.querySelector('video');
+        if (oldVideo) oldVideo.srcObject = stream;
+        return;
+      }
+
+      const container = document.createElement('div');
+      container.className = 'video-container';
+      container.id = `video-${name}`;
+
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+
+      const label = document.createElement('div');
+      label.className = 'video-label';
+      label.textContent = name;
+
+      const statusEl = document.createElement('div');
+      statusEl.className = 'video-status';
+      statusEl.id = `status-${name}`;
+
+      container.appendChild(video);
+      container.appendChild(label);
+      container.appendChild(statusEl);
+      grid.appendChild(container);
+
+      updateGridLayout();
+    }
+
+    function removeRemoteVideo(name) {
+      const el = document.getElementById(`video-${name}`);
+      if (el) {
+        // Add fade-out animation before removing
+        el.style.transition = 'opacity 0.3s ease';
+        el.style.opacity = '0';
+        setTimeout(() => {
+          el.remove();
+          updateGridLayout();
+        }, 300);
+      }
+    }
+
+    function markVideoDisconnected(name) {
+      const container = document.getElementById(`video-${name}`);
+      if (!container) return;
+      
+      // Add disconnected overlay if not exists
+      let overlay = container.querySelector('.video-disconnected-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'video-disconnected-overlay';
+        overlay.innerHTML = `
+          <div class="disconnected-icon">⚠️</div>
+          <div class="disconnected-text">Đang kết nối lại...</div>
+        `;
+        container.appendChild(overlay);
+      }
+      
+      // Auto-remove after 10 seconds if still disconnected
+      setTimeout(() => {
+        const pc = peerConnections[name];
+        if (!pc || pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+          addLog(`Xóa video ${name} do mất kết nối quá lâu`, 'warning');
+          closePeerConnection(name);
+          removeRemoteVideo(name);
+          checkIfCallShouldEnd();
+        }
+      }, 10000);
+    }
+
+    function clearVideoDisconnectedOverlay(name) {
+      const container = document.getElementById(`video-${name}`);
+      if (!container) return;
+      
+      const overlay = container.querySelector('.video-disconnected-overlay');
+      if (overlay) overlay.remove();
+    }
+
+    function updateGridLayout() {
+      const grid = $('videoGrid');
+      const count = grid.children.length;
+
+      // Remove all grid-* classes
+      grid.className = 'video-grid';
+
+      if (count <= 1) grid.classList.add('grid-1');
+      else if (count <= 2) grid.classList.add('grid-2');
+      else if (count <= 4) grid.classList.add('grid-4');
+      else grid.classList.add('grid-6');
+    }
+
+    // ============================================================
+    // Audio/Video Toggle
+    // ============================================================
+
+    function toggleAudio() {
+      if (!localStream) return;
+      audioMuted = !audioMuted;
+      localStream.getAudioTracks().forEach(t => t.enabled = !audioMuted);
+      toggleAudioBtn.classList.toggle('active', audioMuted);
+      toggleAudioBtn.textContent = audioMuted ? '🔇' : '🎤';
+      addLog(audioMuted ? 'Mic tắt' : 'Mic bật', 'info');
+    }
+
+    function toggleVideo() {
+      if (!localStream) return;
+      videoMuted = !videoMuted;
+      localStream.getVideoTracks().forEach(t => t.enabled = !videoMuted);
+      toggleVideoBtn.classList.toggle('active', videoMuted);
+      toggleVideoBtn.textContent = videoMuted ? '🚫' : '📷';
+      addLog(videoMuted ? 'Camera tắt' : 'Camera bật', 'info');
+    }
+
+    // ============================================================
+    // TURN Status Display (auto-configured from server)
+    // ============================================================
+
+    function updateTurnStatus(turnCount, status = 'success') {
+      const statusEl = $('turnStatus');
+      if (!statusEl) return;
+      
+      const configs = {
+        success: { 
+          bg: 'rgba(16, 185, 129, 0.1)', 
+          color: '#10b981',
+          icon: '🔒',
+          text: `TURN Server: ${turnCount} servers (Metered.ca)`
+        },
+        warning: { 
+          bg: 'rgba(245, 158, 11, 0.1)', 
+          color: '#f59e0b',
+          icon: '⚠️',
+          text: 'TURN Server: Chỉ có STUN'
+        },
+        error: { 
+          bg: 'rgba(239, 68, 68, 0.1)', 
+          color: '#ef4444',
+          icon: '❌',
+          text: 'TURN Server: Lỗi kết nối'
+        }
+      };
+
+      const config = configs[status] || configs.warning;
+      statusEl.style.background = config.bg;
+      statusEl.style.color = config.color;
+      statusEl.innerHTML = `<span style="margin-right: 6px;">${config.icon}</span><span>${config.text}</span>`;
+    }
+
+    // ============================================================
+    // Connection Stats
+    // ============================================================
+
+    async function getConnectionStats(peerName, pc) {
+      try {
+        const stats = await pc.getStats();
+        let candidateType = 'unknown';
+        let localCandidateType = '';
+        let remoteCandidateType = '';
+        let localCandidateId = '';
+        let remoteCandidateId = '';
+
+        // First pass: find the active candidate pair
+        stats.forEach((report) => {
+          // Check for succeeded or in-progress state (different browsers use different states)
+          if (report.type === 'candidate-pair' && 
+              (report.state === 'succeeded' || report.state === 'in-progress' || report.nominated === true)) {
+            localCandidateId = report.localCandidateId;
+            remoteCandidateId = report.remoteCandidateId;
+          }
+        });
+
+        // Second pass: get candidate types
+        stats.forEach((report) => {
+          if (report.type === 'local-candidate' && report.id === localCandidateId) {
+            localCandidateType = report.candidateType;
+          }
+          if (report.type === 'remote-candidate' && report.id === remoteCandidateId) {
+            remoteCandidateType = report.candidateType;
+          }
+        });
+
+        // Determine connection type
+        if (localCandidateType === 'relay' || remoteCandidateType === 'relay') {
+          candidateType = 'relay (TURN)';
+        } else if (localCandidateType === 'srflx' || remoteCandidateType === 'srflx') {
+          candidateType = 'srflx (STUN)';
+        } else if (localCandidateType === 'prflx' || remoteCandidateType === 'prflx') {
+          candidateType = 'prflx (STUN)';
+        } else if (localCandidateType === 'host' && remoteCandidateType === 'host') {
+          candidateType = 'host (LAN)';
+        } else if (localCandidateType || remoteCandidateType) {
+          candidateType = `${localCandidateType || '?'}/${remoteCandidateType || '?'}`;
+        }
+
+        // Show on UI
+        $('candidateType').style.display = 'flex';
+        $('candidateTypeValue').textContent = candidateType;
+
+        addLog(`[${peerName}] Candidate: local=${localCandidateType || 'N/A'}, remote=${remoteCandidateType || 'N/A'} → ${candidateType}`, 'success');
+
+        // Show stats panel
+        updateStatsPanel(peerName, pc);
+      } catch (err) {
+        console.error('Stats error:', err);
+      }
+    }
+
+    async function updateStatsPanel(peerName, pc) {
+      const statsPanel = $('statsPanel');
+      const statsGrid = $('statsGrid');
+      statsPanel.style.display = 'block';
+
+      try {
+        const stats = await pc.getStats();
+        let html = '';
+
+        stats.forEach((report) => {
+          if (report.type === 'candidate-pair' && report.state === 'succeeded') {
+            html += `<div class="stats-item"><span>Peer</span><span class="value">${peerName}</span></div>`;
+            html += `<div class="stats-item"><span>RTT</span><span class="value">${report.currentRoundTripTime ? (report.currentRoundTripTime * 1000).toFixed(0) + 'ms' : 'N/A'}</span></div>`;
+          }
+
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            html += `<div class="stats-item"><span>Video In</span><span class="value">${report.framesPerSecond || 0} fps</span></div>`;
+            html += `<div class="stats-item"><span>Packets Lost</span><span class="value">${report.packetsLost || 0}</span></div>`;
+          }
+        });
+
+        if (html) statsGrid.innerHTML = html;
+      } catch (err) {
+        console.error('Stats update error:', err);
+      }
+    }
+
+    // Periodic stats update
+    setInterval(() => {
+      if (!inCall) return;
+      for (const [name, pc] of Object.entries(peerConnections)) {
+        if (pc.connectionState === 'connected') {
+          updateStatsPanel(name, pc);
+        }
+      }
+    }, 5000);
+
+    // ============================================================
+    // Connection Badge
+    // ============================================================
+
+    function updateConnectionBadge(state) {
+      const badge = $('connectionBadge');
+      const map = {
+        idle:         { class: 'badge-default', text: 'Chưa gọi' },
+        connecting:   { class: 'badge-warning', text: 'Đang kết nối...' },
+        connected:    { class: 'badge-success', text: 'Đã kết nối' },
+        disconnected: { class: 'badge-danger',  text: 'Mất kết nối' },
+        failed:       { class: 'badge-danger',  text: 'Kết nối thất bại' }
+      };
+
+      const info = map[state] || map.idle;
+      badge.className = `badge ${info.class}`;
+      badge.innerHTML = `<span class="badge-dot"></span> ${info.text}`;
+    }
+
+    // ============================================================
+    // Call Timer
+    // ============================================================
+
+    function startCallTimer() {
+      $('callDuration').style.display = 'flex';
+      callTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - callStartTime) / 1000);
+        const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
+        const secs = String(elapsed % 60).padStart(2, '0');
+        $('callDurationValue').textContent = `${mins}:${secs}`;
+      }, 1000);
+    }
+
+    // ============================================================
+    // Utility Functions
+    // ============================================================
+
+    function wsSend(data) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data));
+      }
+    }
+
+    function addLog(text, type = 'info') {
+      const panel = $('logPanel');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      const time = new Date().toLocaleTimeString('vi-VN');
+      entry.textContent = `[${time}] ${text}`;
+      panel.appendChild(entry);
+      panel.scrollTop = panel.scrollHeight;
+
+      // Also log to console
+      console.log(`[${type.toUpperCase()}] ${text}`);
+    }
+
+    function showToast(message, type = 'info') {
+      const container = $('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.remove();
+      }, 4000);
     }
   </script>
 </body>
