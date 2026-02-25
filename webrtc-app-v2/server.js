@@ -8,7 +8,7 @@ const path = require('path');
 require('dotenv').config();
 
 // ============================================================
-// Configuration
+// Configuration & TURN
 // ============================================================
 const PORT = process.env.PORT || 3000;
 
@@ -16,59 +16,39 @@ const PORT = process.env.PORT || 3000;
 const METERED_APP_NAME = process.env.METERED_APP_NAME || '';
 const METERED_API_KEY = process.env.METERED_API_KEY || '';
 
-// Cache for TURN credentials (refresh every 20 minutes)
 let cachedTurnCredentials = null;
 let lastTurnFetch = 0;
-const TURN_CACHE_DURATION = 20 * 60 * 1000; // 20 minutes
+const TURN_CACHE_DURATION = 20 * 60 * 1000;
 
-// Fetch TURN credentials from Metered.ca
 async function fetchMeteredTurnCredentials() {
   if (!METERED_APP_NAME || !METERED_API_KEY) {
-    console.log('⚠️  Metered TURN not configured. Using STUN only.');
+    console.log('⚠️  Metered TURN không khả dụng. Chỉ dùng STUN.');
     return null;
   }
-
-  // Use cached credentials if still valid
   if (cachedTurnCredentials && (Date.now() - lastTurnFetch) < TURN_CACHE_DURATION) {
     return cachedTurnCredentials;
   }
-
   try {
     const url = `https://${METERED_APP_NAME}.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`;
     const response = await fetch(url);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     cachedTurnCredentials = await response.json();
     lastTurnFetch = Date.now();
-
-    console.log(`✅ Fetched ${cachedTurnCredentials.length} TURN servers from Metered.ca`);
-    cachedTurnCredentials.forEach((server, i) => {
-      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
-      urls.forEach(url => console.log(`   TURN[${i}]: ${url}`));
-    });
-
+    console.log(`✅ Lấy thành công TURN servers từ Metered.ca`);
     return cachedTurnCredentials;
   } catch (error) {
-    console.error('❌ Failed to fetch Metered TURN credentials:', error.message);
+    console.error('❌ Lỗi lấy TURN credentials:', error.message);
     return null;
   }
 }
 
-// Build ICE servers config
 async function getIceServers() {
   const iceServers = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
   ];
-
   const turnCredentials = await fetchMeteredTurnCredentials();
-  if (turnCredentials) {
-    iceServers.push(...turnCredentials);
-  }
-
+  if (turnCredentials) iceServers.push(...turnCredentials);
   return iceServers;
 }
 
@@ -82,7 +62,6 @@ try {
   };
 } catch (error) {
   console.error('❌ Lỗi tải chứng chỉ SSL:', error.message);
-  console.error('   Hãy tạo cert theo hướng dẫn trong README.md');
   process.exit(1);
 }
 
@@ -90,83 +69,54 @@ const server = https.createServer(options, app);
 const wss = new WebSocket.Server({ server });
 app.use(express.static(path.join(__dirname, 'public')));
 
+// ==========================================
+// STATE MANAGEMENT (ROOMS)
+// ==========================================
+
+// roomId -> object { id, members: Set of ws, callActive: boolean }
+const rooms = new Map();
 // name -> ws
 const clients = new Map();
 
-// name -> partnerName (2 chiều)
-const activeCalls = new Map();
-
 wss.on('connection', (ws) => {
-  ws.x_name = null;
-  ws.x_roomId = null;
+  ws.name = null;
+  ws.roomId = null;
 
-  ws.on('message', (message) => {
+  ws.on('message', async (message) => {
     try {
       const data = JSON.parse(message);
+      const { type, name, roomId, sender, target } = data;
 
-      // ===== register =====
-      if (data.type === 'register') {
-        const name = String(data.name || '').trim();
-        if (!name) return;
+      switch (type) {
+        case 'register':
+          handleRegister(ws, name);
+          break;
 
-        // Nếu trùng tên: kick phiên cũ
-        if (clients.has(name)) {
-          try { clients.get(name).close(); } catch { }
-          clients.delete(name);
-          activeCalls.delete(name);
-        }
+        case 'createRoom':
+        case 'joinRoom':
+          handleJoinRoom(ws, roomId, name);
+          break;
 
-        clientName = name;
-        clients.set(clientName, ws);
-        broadcastClients();
-        return;
-      }
+        case 'leaveRoom':
+          handleLeaveRoom(ws, roomId);
+          break;
 
-      // Chưa register thì bỏ qua
-      if (!clientName) return;
+        case 'startGroupCall':
+          handleStartGroupCall(ws, roomId);
+          break;
 
-      // ===== offer =====
-      if (data.type === 'offer') {
-        const target = String(data.target || '').trim();
-        const sender = String(data.sender || '').trim();
+        case 'endCall':
+          handleEndCall(ws, roomId, sender);
+          break;
 
-        if (!target || !sender) return;
-        if (sender !== clientName) return; // chống giả mạo sender
+        case 'offer':
+        case 'answer':
+        case 'candidate':
+          forwardSignal(ws, roomId, target, data);
+          break;
 
-        // Nếu target đang bận -> kết thúc cuộc gọi cũ của target
-        if (activeCalls.has(target)) {
-          const oldPartner = activeCalls.get(target);
-          endCall(target); // dọn map + báo endCall cho oldPartner
-        }
-
-        // Thiết lập cuộc gọi mới (2 chiều)
-        activeCalls.set(target, sender);
-        activeCalls.set(sender, target);
-
-        forwardMessage(data);
-        return;
-      }
-
-      // ===== answer / candidate =====
-      if (data.type === 'answer' || data.type === 'candidate') {
-        const target = String(data.target || '').trim();
-        const sender = String(data.sender || '').trim();
-
-        if (!target || !sender) return;
-        if (sender !== clientName) return;
-
-        forwardMessage(data);
-        return;
-      }
-
-      // ===== endCall =====
-      if (data.type === 'endCall') {
-        const sender = String(data.sender || '').trim();
-        if (!sender) return;
-        if (sender !== clientName) return;
-
-        endCall(sender);
-        return;
+        default:
+          console.warn('Unknown message type:', type);
       }
     } catch (error) {
       console.error('Lỗi xử lý tin nhắn:', error);
@@ -174,50 +124,190 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (clientName) {
-      endCall(clientName);
-      clients.delete(clientName);
-      broadcastClients();
+    if (ws.roomId) {
+      handleLeaveRoom(ws, ws.roomId);
+    }
+    if (ws.name) {
+      clients.delete(ws.name);
     }
   });
 });
 
-function broadcastClients() {
-  const clientList = Array.from(clients.keys());
-  for (const [, client] of clients.entries()) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify({ type: 'clientList', clients: clientList }));
+// ==========================================
+// HANDLERS
+// ==========================================
+
+function handleRegister(ws, name) {
+  if (!name) return;
+  const safeName = String(name).trim();
+
+  // Kick old session
+  if (clients.has(safeName)) {
+    try { clients.get(safeName).close(); } catch { }
+    clients.delete(safeName);
+  }
+
+  ws.name = safeName;
+  clients.set(safeName, ws);
+
+  // Send initial ICE configuration
+  getIceServers().then(iceServers => {
+    wsSend(ws, {
+      type: 'registered',
+      name: safeName,
+      iceServers: iceServers
+    });
+  });
+
+  sendRoomListToAll();
+}
+
+function handleJoinRoom(ws, roomId, name) {
+  if (!roomId || !name || !ws.name) return;
+  const safeRoomId = String(roomId).trim();
+
+  // Leave current room
+  if (ws.roomId && ws.roomId !== safeRoomId) {
+    handleLeaveRoom(ws, ws.roomId);
+  }
+
+  ws.roomId = safeRoomId;
+
+  if (!rooms.has(safeRoomId)) {
+    rooms.set(safeRoomId, {
+      id: safeRoomId,
+      members: new Set(),
+      callActive: false
+    });
+  }
+
+  const room = rooms.get(safeRoomId);
+  room.members.add(ws);
+
+  wsSend(ws, {
+    type: 'roomJoined',
+    roomId: safeRoomId,
+    callActive: room.callActive
+  });
+
+  broadcastRoomMembers(safeRoomId);
+  sendRoomListToAll();
+}
+
+function handleLeaveRoom(ws, roomId) {
+  if (!roomId) return;
+
+  // Actually they are just leaving their room
+  // wait check if ws.roomId matches
+  const actualRoomId = ws.roomId || roomId;
+  const room = rooms.get(actualRoomId);
+  if (!room) return;
+
+  room.members.delete(ws);
+  ws.roomId = null;
+
+  broadcastToRoom(actualRoomId, {
+    type: 'memberLeft',
+    roomId: actualRoomId,
+    name: ws.name
+  });
+
+  broadcastRoomMembers(actualRoomId);
+
+  if (room.members.size === 0) {
+    rooms.delete(actualRoomId);
+  }
+
+  sendRoomListToAll();
+}
+
+function handleStartGroupCall(ws, roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  room.callActive = true;
+
+  broadcastToRoom(roomId, {
+    type: 'startGroupCall',
+    roomId: roomId,
+    members: Array.from(room.members).map(c => c.name)
+  });
+
+  sendRoomListToAll();
+}
+
+function handleEndCall(ws, roomId, sender) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  broadcastToRoom(roomId, {
+    type: 'peerEndedCall',
+    roomId: roomId,
+    name: ws.name
+  }, [ws.name]);
+}
+
+function forwardSignal(ws, roomId, targetName, data) {
+  if (!roomId || !targetName) return;
+  if (ws.roomId !== roomId) return;
+
+  const targetWs = clients.get(targetName);
+  if (targetWs && targetWs.roomId === roomId && targetWs.readyState === WebSocket.OPEN) {
+    wsSend(targetWs, data);
+  }
+}
+
+function wsSend(ws, data) {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
+}
+
+function broadcastToRoom(roomId, data, excludeNames = []) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  const message = JSON.stringify(data);
+  for (const client of room.members) {
+    if (!excludeNames.includes(client.name) && client.readyState === WebSocket.OPEN) {
+      client.send(message);
     }
   }
 }
 
-function forwardMessage(data) {
-  const targetClient = clients.get(data.target);
-  if (targetClient && targetClient.readyState === WebSocket.OPEN) {
-    targetClient.send(JSON.stringify(data));
+function broadcastRoomMembers(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  const members = Array.from(room.members).map(c => c.name);
+  broadcastToRoom(roomId, {
+    type: 'roomMembers',
+    roomId: roomId,
+    members: members,
+    callActive: room.callActive
+  });
+}
+
+function sendRoomListToAll() {
+  const roomList = [];
+  for (const [id, room] of rooms.entries()) {
+    roomList.push({
+      roomId: id,
+      memberCount: room.members.size,
+      callActive: room.callActive
+    });
+  }
+
+  const msg = JSON.stringify({
+    type: 'roomList',
+    rooms: roomList
+  });
+
+  for (const client of clients.values()) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
   }
 }
 
-function endCall(client) {
-  if (!activeCalls.has(client)) return;
-
-  const partner = activeCalls.get(client);
-
-  // dọn map 2 chiều
-  activeCalls.delete(client);
-  activeCalls.delete(partner);
-
-  // báo cho partner (nếu còn online)
-  const partnerWs = clients.get(partner);
-  if (partnerWs && partnerWs.readyState === WebSocket.OPEN) {
-    partnerWs.send(JSON.stringify({ type: 'endCall' }));
-  }
-
-  // (tùy chọn) báo lại cho chính client để đồng bộ UI
-  const clientWs = clients.get(client);
-  if (clientWs && clientWs.readyState === WebSocket.OPEN) {
-    clientWs.send(JSON.stringify({ type: 'endCall' }));
-  }
-}
-
-server.listen(3000, () => console.log('Server running on port 3000'));
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
