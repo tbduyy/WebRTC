@@ -21,132 +21,172 @@ const server = https.createServer(options, app);
 const wss = new WebSocket.Server({ server });
 app.use(express.static(path.join(__dirname, 'public')));
 
-// name -> ws
-const clients = new Map();
+// ==========================================
+// STATE MANAGEMENT (ROOMS)
+// ==========================================
 
-// name -> partnerName (2 chiều)
-const activeCalls = new Map();
+// Global map: socketId (ws) -> { name, roomId }
+// We use the WS object itself as key in WeakMap mostly, or just attach props to ws
+// But here we need to look up easily.
+// Let's attach data to ws directly for simplicity: ws.x_name, ws.x_roomId
+
+// roomId -> Set<ws>
+const rooms = new Map();
 
 wss.on('connection', (ws) => {
-  let clientName = null;
+  ws.x_name = null;
+  ws.x_roomId = null;
 
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message);
-
-      // ===== register =====
-      if (data.type === 'register') {
-        const name = String(data.name || '').trim();
-        if (!name) return;
-
-        // Nếu trùng tên: kick phiên cũ
-        if (clients.has(name)) {
-          try { clients.get(name).close(); } catch { }
-          clients.delete(name);
-          activeCalls.delete(name);
-        }
-
-        clientName = name;
-        clients.set(clientName, ws);
-        broadcastClients();
-        return;
-      }
-
-      // Chưa register thì bỏ qua
-      if (!clientName) return;
-
-      // ===== offer =====
-      if (data.type === 'offer') {
-        const target = String(data.target || '').trim();
-        const sender = String(data.sender || '').trim();
-
-        if (!target || !sender) return;
-        if (sender !== clientName) return; // chống giả mạo sender
-
-        // Nếu target đang bận -> kết thúc cuộc gọi cũ của target
-        if (activeCalls.has(target)) {
-          const oldPartner = activeCalls.get(target);
-          endCall(target); // dọn map + báo endCall cho oldPartner
-        }
-
-        // Thiết lập cuộc gọi mới (2 chiều)
-        activeCalls.set(target, sender);
-        activeCalls.set(sender, target);
-
-        forwardMessage(data);
-        return;
-      }
-
-      // ===== answer / candidate =====
-      if (data.type === 'answer' || data.type === 'candidate') {
-        const target = String(data.target || '').trim();
-        const sender = String(data.sender || '').trim();
-
-        if (!target || !sender) return;
-        if (sender !== clientName) return;
-
-        forwardMessage(data);
-        return;
-      }
-
-      // ===== endCall =====
-      if (data.type === 'endCall') {
-        const sender = String(data.sender || '').trim();
-        if (!sender) return;
-        if (sender !== clientName) return;
-
-        endCall(sender);
-        return;
-      }
+      handleMessage(ws, data);
     } catch (error) {
-      console.error('Lỗi xử lý tin nhắn:', error);
+      console.error('Invalid JSON:', error);
     }
   });
 
   ws.on('close', () => {
-    if (clientName) {
-      endCall(clientName);
-      clients.delete(clientName);
-      broadcastClients();
-    }
+    handleDisconnect(ws);
   });
 });
 
-function broadcastClients() {
-  const clientList = Array.from(clients.keys());
-  for (const [, client] of clients.entries()) {
+function handleMessage(ws, data) {
+  const { type } = data;
+
+  switch (type) {
+    case 'joinRoom':
+      handleJoinRoom(ws, data);
+      break;
+    case 'offer':
+    case 'answer':
+    case 'candidate':
+      forwardSignal(ws, data);
+      break;
+    case 'leaveRoom':
+    case 'endCall':
+      // endCall logic might need refinement for Groups, but basic forwarding is needed
+      // For group mesh, usually we just leave or send specific disconnects
+      if (type === 'leaveRoom') handleDisconnect(ws);
+      else forwardSignal(ws, data);
+      break;
+    default:
+      console.warn('Unknown message type:', type);
+  }
+}
+
+function handleJoinRoom(ws, params) {
+  const { roomId, name } = params;
+  if (!roomId || !name) return;
+
+  // Cleanup if already in a room?
+  if (ws.x_roomId) {
+    handleDisconnect(ws);
+  }
+
+  ws.x_id = name; // Using name as ID for now (simple requirements)
+  ws.x_name = name;
+  ws.x_roomId = roomId;
+
+  // Create room if not exists
+  if (!rooms.has(roomId)) {
+    rooms.set(roomId, new Set());
+  }
+
+  const room = rooms.get(roomId);
+
+  // Check for duplicate name in room?
+  // Simple check:
+  for (let member of room) {
+    if (member.x_name === name) {
+      // Reject or kick old?
+      // Requirement says "kick old" or similar implied by simple login.
+      // Let's kick the old one to be safe
+      member.close();
+      room.delete(member);
+    }
+  }
+
+  room.add(ws);
+
+  // 1. Acknowledge join (optional, but good for UI)
+  // 2. Broadcast 'roomMembers' to everyone in room (including self)
+  broadcastRoomMembers(roomId);
+}
+
+function handleDisconnect(ws) {
+  const roomId = ws.x_roomId;
+  const name = ws.x_name;
+
+  if (roomId && rooms.has(roomId)) {
+    const room = rooms.get(roomId);
+    room.delete(ws);
+
+    // Broadcast memberLeft
+    const msg = { type: 'memberLeft', roomId, name };
+
+    for (let client of room) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(msg));
+      }
+    }
+
+    // Update member list ensures client states are consistent
+    broadcastRoomMembers(roomId);
+
+    if (room.size === 0) {
+      rooms.delete(roomId);
+    }
+  }
+
+  ws.x_roomId = null;
+  ws.x_name = null;
+}
+
+function broadcastRoomMembers(roomId) {
+  if (!rooms.has(roomId)) return;
+
+  const room = rooms.get(roomId);
+  const members = [];
+  for (let client of room) {
+    members.push(client.x_name);
+  }
+
+  const msg = JSON.stringify({
+    type: 'roomMembers',
+    roomId,
+    members
+  });
+
+  for (let client of room) {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify({ type: 'clientList', clients: clientList }));
+      client.send(msg);
     }
   }
 }
 
-function forwardMessage(data) {
-  const targetClient = clients.get(data.target);
-  if (targetClient && targetClient.readyState === WebSocket.OPEN) {
-    targetClient.send(JSON.stringify(data));
-  }
-}
+function forwardSignal(ws, data) {
+  // Security: Only forward if in same room
+  const roomId = ws.x_roomId;
+  const target = data.target;
 
-function endCall(client) {
-  if (!activeCalls.has(client)) return;
+  if (!roomId || !target) return;
+  // Verify sender matches
+  if (data.sender !== ws.x_name) return;
 
-  const partner = activeCalls.get(client);
+  const room = rooms.get(roomId);
+  if (!room) return;
 
-  // dọn map 2 chiều
-  activeCalls.delete(client);
-  activeCalls.delete(partner);
-
-  // báo cho partner (nếu còn online)
-  const partnerWs = clients.get(partner);
-  if (partnerWs && partnerWs.readyState === WebSocket.OPEN) {
-    partnerWs.send(JSON.stringify({ type: 'endCall' }));
+  let targetWs = null;
+  for (let client of room) {
+    if (client.x_name === target) {
+      targetWs = client;
+      break;
+    }
   }
 
-  // (tùy chọn) báo lại cho chính client để đồng bộ UI
-  const clientWs = clients.get(client);
-  if (clientWs && clientWs.readyState === WebSocket.OPEN) {
-    clientWs.send(JSON.stringify({ type: 'endCall' }));
+  if (targetWs && targetWs.readyState === WebSocket.OPEN) {
+    targetWs.send(JSON.stringify(data));
   }
 }
 
