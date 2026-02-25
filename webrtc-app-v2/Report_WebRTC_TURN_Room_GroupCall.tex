@@ -1,0 +1,352 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{setspace}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{mathptmx}
+\usepackage[vietnamese]{babel}
+\usepackage{amsmath}
+
+\onehalfspacing
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue
+}
+
+% \pagestyle{fancy}
+% \fancyhf{}
+% \rhead{WebRTC TURN + Room + Group Call}
+% \lhead{Report}
+% \cfoot{\thepage}
+
+\titleformat{\section}{\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{0.5em}{}
+
+\lstdefinelanguage{json}{
+  basicstyle=\ttfamily\small,
+  morestring=[b]",
+  stringstyle=\color{blue},
+  showstringspaces=false,
+  breaklines=true
+}
+
+\lstset{
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray},
+  backgroundcolor=\color{gray!5},
+  breaklines=true,
+  columns=fullflexible
+}
+
+\begin{document}
+
+\begin{center}
+    {\LARGE \textbf{Report WebRTC}}\\[0.5em]
+    {\large WebRTC Group Call System with Metered TURN, Room, and Mesh Topology}\\[2em]
+
+    % Phần thông tin Giảng viên và Sinh viên chia cột
+    \begin{tabular}{p{0.15\textwidth} l p{0.1\textwidth} p{0.15\textwidth} l}
+        \textbf{Lecturer:}   & Lê Viết Long         & & \textbf{Students:} & Trần Bình Duy - 23127xxx \\
+        \textbf{} & Nguyễn Thanh Quân     & &                    & Nguyễn Văn Khánh - 23127388 \\
+
+    \end{tabular}
+\end{center}
+
+% \begin{center}
+%   {\LARGE \textbf{Report\_WebRTC\_TURN\_Room\_GroupCall}}\\[0.5em]
+%   {\large WebRTC Group Call System with Metered TURN, Room, and Mesh Topology}\\[1em]
+%   Sinh viên: \underline{\hspace{7cm}}\\[0.5em]
+%   Môn học: \underline{\hspace{7cm}}\\[0.5em]
+%   Ngày nộp: \underline{\hspace{6cm}}
+% \end{center}
+
+\vspace{1em}
+\hrule
+\vspace{1em}
+
+\section{Mô tả kiến trúc hệ thống}
+
+\subsection{Tổng quan client/server}
+Hệ thống được xây dựng theo mô hình signaling server + WebRTC peer-to-peer:
+\begin{itemize}[leftmargin=1.5em]
+  \item \textbf{Server (Node.js + HTTPS + WebSocket):} quản lý đăng ký nickname, quản lý phòng, phát tán danh sách thành viên, chuyển tiếp signaling messages (offer/answer/candidate).
+  \item \textbf{Client (HTML/CSS/JS):} lấy media bằng \texttt{getUserMedia()}, thiết lập \texttt{RTCPeerConnection}, hiển thị grid video, xử lý trạng thái cuộc gọi.
+  \item \textbf{TURN service (Metered.ca):} cung cấp relay khi kết nối trực tiếp thất bại do NAT/Firewall.
+\end{itemize}
+
+\subsection{Luồng signaling và media}
+\begin{enumerate}[leftmargin=1.8em]
+  \item Client đăng ký vào signaling server qua WebSocket.
+  \item Người dùng tạo phòng hoặc tham gia phòng.
+  \item Khi bắt đầu gọi nhóm, các peer trao đổi SDP offer/answer và ICE candidates qua server.
+  \item Sau khi thương lượng thành công, media truyền trực tiếp P2P nếu khả dụng; nếu không, fallback qua TURN relay.
+\end{enumerate}
+
+\subsection{WebRTC trong hệ thống này}
+WebRTC là lớp truyền thông thời gian thực giữa các trình duyệt, chịu trách nhiệm vận chuyển audio/video sau khi signaling hoàn tất.
+
+\textbf{Các thành phần WebRTC được sử dụng:}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{getUserMedia()}: lấy luồng camera/microphone từ thiết bị người dùng.
+  \item \texttt{RTCPeerConnection}: tạo và duy trì kết nối media giữa 2 peers.
+  \item \texttt{MediaStreamTrack}: quản lý track audio/video để bật/tắt mic/camera.
+  \item \texttt{getStats()}: thu thập thống kê chất lượng kết nối (RTT, packet loss, FPS, candidate type).
+\end{itemize}
+
+\textbf{Vòng đời kết nối WebRTC trong app:}
+\begin{enumerate}[leftmargin=1.8em]
+  \item Tạo \texttt{RTCPeerConnection} với danh sách \texttt{iceServers} do server cung cấp.
+  \item Thêm local tracks (audio/video) vào peer connection.
+  \item Trao đổi SDP offer/answer qua signaling server.
+  \item Trao đổi ICE candidates để tìm đường truyền tối ưu.
+  \item Vào trạng thái \texttt{connected}: nhận và hiển thị remote stream trên video grid.
+  \item Khi mạng gián đoạn: theo dõi \texttt{iceConnectionState}, thực hiện ICE restart nếu cần.
+\end{enumerate}
+
+\textbf{Vai trò của WebRTC trong kiến trúc:}
+\begin{itemize}[leftmargin=1.5em]
+  \item Signaling server chỉ điều phối tín hiệu, không truyền media.
+  \item Media đi trực tiếp giữa peers (P2P) hoặc đi qua TURN relay khi P2P thất bại.
+  \item Với group call mesh, mỗi user duy trì nhiều \texttt{RTCPeerConnection} song song (mỗi peer một kết nối).
+\end{itemize}
+
+\subsection{Mô hình ICE/STUN/TURN}
+\textbf{ICE (Interactive Connectivity Establishment)} là cơ chế để hai peer tìm đường truyền media tốt nhất giữa nhiều khả năng kết nối.
+
+\textbf{Các loại ICE candidate:}
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{host}: candidate nội mạng (LAN/direct), độ trễ thấp nhất khi hai thiết bị có thể kết nối trực tiếp.
+  \item \texttt{srflx}: candidate phản xạ từ STUN (public IP/port mapping), dùng để vượt NAT thông thường.
+  \item \texttt{relay}: candidate đi qua TURN relay (Metered), dùng khi \texttt{host}/\texttt{srflx} không tạo được đường truyền end-to-end.
+\end{itemize}
+
+\textbf{Quy trình ICE trong hệ thống:}
+\begin{enumerate}[leftmargin=1.8em]
+  \item Mỗi peer thu thập candidate từ danh sách \texttt{iceServers} (STUN + TURN).
+  \item Hai bên trao đổi candidate qua signaling server bằng message \texttt{candidate}.
+  \item WebRTC thực hiện connectivity checks trên các candidate pairs khả dụng.
+  \item Chọn candidate pair tốt nhất để truyền media; trạng thái chuyển từ \texttt{checking} sang \texttt{connected/completed}.
+\end{enumerate}
+
+\textbf{Thứ tự ưu tiên và fallback:}
+\begin{itemize}[leftmargin=1.5em]
+  \item Thông thường ưu tiên đường direct (\texttt{host} hoặc \texttt{srflx}) để giảm độ trễ và tiết kiệm relay bandwidth.
+  \item Nếu direct path thất bại (NAT đối xứng, firewall chặn UDP/TCP, mạng di động hạn chế), hệ thống fallback sang \texttt{relay (TURN)}.
+  \item Trong ứng dụng này, khi \texttt{iceConnectionState} chuyển sang \texttt{disconnected/failed}, client kích hoạt ICE restart để thử tái thiết lập đường truyền.
+\end{itemize}
+
+\textbf{Ý nghĩa trong kiểm thử:}
+\begin{itemize}[leftmargin=1.5em]
+  \item Test LAN thường thấy \texttt{host} $\Rightarrow$ P2P trực tiếp.
+  \item Test khác mạng (WiFi vs 4G) thường xuất hiện \texttt{relay} $\Rightarrow$ TURN hoạt động đúng.
+  \item Thống kê từ \texttt{getStats()} được dùng để xác nhận candidate type cuối cùng và chứng minh relay trong báo cáo.
+\end{itemize}
+
+\section{Định nghĩa protocol signaling}
+
+\subsection{Danh sách message JSON chính}
+\begin{longtable}{@{}p{3cm}p{2cm}p{8.5cm}@{}}
+\toprule
+\textbf{Message} & \textbf{Hướng} & \textbf{Payload} \\
+\midrule
+\endhead
+\texttt{register} & C$\rightarrow$S & \texttt{\{type, name\}} \\
+\texttt{registered} & S$\rightarrow$C & \texttt{\{type, name, iceServers[]\}} \\
+\texttt{createRoom} & C$\rightarrow$S & \texttt{\{type, roomId, name\}} \\
+\texttt{joinRoom} & C$\rightarrow$S & \texttt{\{type, roomId, name\}} \\
+\texttt{roomJoined} & S$\rightarrow$C & \texttt{\{type, roomId, callActive\}} \\
+\texttt{roomMembers} & S$\rightarrow$C & \texttt{\{type, roomId, members[], callActive\}} \\
+\texttt{offer} & C$\rightarrow$S$\rightarrow$C & \texttt{\{type, roomId, sender, target, offer\}} \\
+\texttt{answer} & C$\rightarrow$S$\rightarrow$C & \texttt{\{type, roomId, sender, target, answer\}} \\
+\texttt{candidate} & C$\rightarrow$S$\rightarrow$C & \texttt{\{type, roomId, sender, target, candidate\}} \\
+\texttt{leaveRoom} & C$\rightarrow$S & \texttt{\{type, roomId, sender\}} \\
+\texttt{memberLeft} & S$\rightarrow$C & \texttt{\{type, roomId, name\}} \\
+\texttt{endCall} & C$\rightarrow$S & \texttt{\{type, roomId, sender\}} \\
+\texttt{peerEndedCall} & S$\rightarrow$C & \texttt{\{type, roomId, name\}} \\
+\texttt{error} & S$\rightarrow$C & \texttt{\{type, message\}} \\
+\bottomrule
+\end{longtable}
+
+\subsection{Ví dụ gói tin}
+\begin{lstlisting}[language=json,caption={Offer message}]
+{
+  "type": "offer",
+  "roomId": "abc123",
+  "sender": "userA",
+  "target": "userB",
+  "offer": {
+    "type": "offer",
+    "sdp": "v=0..."
+  }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=json,caption={ICE candidate message}]
+{
+  "type": "candidate",
+  "roomId": "abc123",
+  "sender": "userA",
+  "target": "userB",
+  "candidate": {
+    "candidate": "candidate:...",
+    "sdpMid": "0",
+    "sdpMLineIndex": 0
+  }
+}
+\end{lstlisting}
+
+\section{Thiết kế room và group call}
+
+\subsection{Quản lý room}
+Server quản lý cấu trúc:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{clients}: ánh xạ \texttt{name $\rightarrow$ \{ws, roomId\}}
+  \item \texttt{rooms}: ánh xạ \texttt{roomId $\rightarrow$ \{members: Set, callActive\}}
+\end{itemize}
+
+Khi có user join/leave, server phát \texttt{roomMembers} để cập nhật realtime cho toàn bộ thành viên trong phòng.
+
+\subsection{Group call mesh topology}
+Với phòng có $n$ người, mỗi client tạo $n-1$ peer connections:
+\[
+\text{Tổng số kết nối} = \frac{n(n-1)}{2}
+\]
+
+\textbf{Ví dụ:} 4 người $\Rightarrow$ 6 kết nối song song.
+
+\subsection{Hiển thị grid video}
+\begin{itemize}[leftmargin=1.5em]
+  \item 1 local video.
+  \item Nhiều remote video (mỗi peer một khung).
+  \item Grid tự điều chỉnh theo số participants (1, 2, 3--4, 5--6).
+  \item Khi peer rời cuộc gọi/phòng: đóng PC tương ứng và remove video element để tránh khung bị đứng hình.
+\end{itemize}
+
+\section{Triển khai TURN (dịch vụ Metered.ca)}
+
+\subsection{Cấu hình sử dụng}
+Hệ thống sử dụng dịch vụ TURN của Metered.ca. Cấu hình trong file \texttt{.env}:
+\begin{lstlisting}[language=json,caption={Environment configuration}]
+PORT=3000
+METERED_APP_NAME=your_app_name
+METERED_API_KEY=your_api_key
+\end{lstlisting}
+
+\subsection{Ports và transport}
+Khi truy vấn endpoint credentials của Metered:
+\begin{lstlisting}
+https://webrtclab.metered.live/api/v1/turn/credentials?apiKey=YOUR_API_KEY
+\end{lstlisting}
+
+API trả về danh sách ICE endpoints thực tế như sau:
+\begin{lstlisting}[language=json,caption={Metered ICE endpoints (actual response format)}]
+[
+  {"urls":"stun:stun.relay.metered.ca:80"},
+  {"urls":"turn:standard.relay.metered.ca:80","username":"<USERNAME>","credential":"<CREDENTIAL>"},
+  {"urls":"turn:standard.relay.metered.ca:80?transport=tcp","username":"<USERNAME>","credential":"<CREDENTIAL>"},
+  {"urls":"turn:standard.relay.metered.ca:443","username":"<USERNAME>","credential":"<CREDENTIAL>"},
+  {"urls":"turns:standard.relay.metered.ca:443?transport=tcp","username":"<USERNAME>","credential":"<CREDENTIAL>"}
+]
+\end{lstlisting}
+
+Từ response trên, các port/transport sử dụng gồm:
+\begin{itemize}[leftmargin=1.5em]
+  \item \texttt{stun:stun.relay.metered.ca:80} (STUN).
+  \item \texttt{turn:standard.relay.metered.ca:80} (TURN mặc định, thường ưu tiên UDP).
+  \item \texttt{turn:standard.relay.metered.ca:80?transport=tcp} (TURN over TCP).
+  \item \texttt{turn:standard.relay.metered.ca:443} (TURN qua port 443).
+  \item \texttt{turns:standard.relay.metered.ca:443?transport=tcp} (TURN over TLS).
+\end{itemize}
+
+
+\subsection{Credential}
+Credential được cấp động từ API của Metered dựa trên:
+\begin{itemize}[leftmargin=1.5em]
+  \item App Name
+  \item API Key
+\end{itemize}
+Server cache danh sách credentials để giảm số lần gọi API.
+
+\section{Kết quả kiểm thử}
+
+\subsection{Test LAN (P2P)}
+\textbf{Môi trường:} nhiều client cùng mạng LAN/WiFi.
+
+\textbf{Kết quả:}
+\begin{itemize}[leftmargin=1.5em]
+  \item Gọi nhóm hoạt động ổn định.
+  \item Candidate chủ yếu là \texttt{host}.
+  \item \texttt{connectionState}: \texttt{connected}
+  \item \texttt{iceConnectionState}: \texttt{connected}
+\end{itemize}
+
+\textbf{Log mẫu:}
+\begin{lstlisting}
+[10:57:47] PC [test2] iceConnectionState: connected
+[10:57:47] PC [test2] connectionState: connected
+[10:57:47] [test2] Candidate: local=host, remote=host -> host (LAN)
+\end{lstlisting}
+
+\subsection{Test khác mạng / 4G (TURN relay)}
+\textbf{Môi trường:} 1 máy WiFi + 1 máy 4G (khác NAT).
+
+\textbf{Kết quả:}
+\begin{itemize}[leftmargin=1.5em]
+  \item ICE gathering thu được \texttt{host}, \texttt{srflx}, và \texttt{relay}.
+  \item Kết nối cuối cùng chọn \texttt{relay (TURN)} khi direct path không khả dụng.
+  \item \texttt{connectionState}: \texttt{connected}
+  \item \texttt{iceConnectionState}: \texttt{connected}
+\end{itemize}
+
+\textbf{Log mẫu (thực tế):}
+\begin{lstlisting}
+[13:17:36] ICE candidate [Dt]: host
+[13:17:36] ICE candidate [Dt]: srflx (STUN)
+[13:17:37] ICE candidate [Dt]: relay (TURN)
+[13:17:37] PC [Dt] iceConnectionState: connected
+[13:17:38] PC [Dt] connectionState: connected
+[13:17:38] [Dt] Candidate: local=relay, remote=relay -> relay (TURN)
+\end{lstlisting}
+
+\subsection{Thống kê từ getStats()}
+Ứng dụng ghi nhận:
+\begin{itemize}[leftmargin=1.5em]
+  \item loại candidate pair đang dùng (host/srflx/relay),
+  \item RTT (\texttt{currentRoundTripTime}),
+  \item FPS video inbound,
+  \item packet loss.
+\end{itemize}
+
+\section{Hạn chế và hướng phát triển}
+
+\subsection{Hạn chế hiện tại}
+\begin{itemize}[leftmargin=1.5em]
+  \item Mesh topology tiêu tốn băng thông theo $O(n^2)$, khó scale cho phòng lớn.
+  \item Chưa có SFU/MCU để tối ưu media routing.
+  \item Dùng self-signed cert trong môi trường local gây thêm bước trust certificate.
+\end{itemize}
+
+\subsection{Hướng phát triển}
+\begin{itemize}[leftmargin=1.5em]
+  \item Chuyển sang SFU (mediasoup/Janus) để hỗ trợ nhiều người hơn.
+  \item Adaptive bitrate và simulcast để tối ưu chất lượng theo mạng.
+  \item Cải thiện UI/UX: layout linh hoạt hơn, trạng thái mạng trực quan hơn.
+  \item Bổ sung screen sharing, chat, recording.
+\end{itemize}
+
+
+\end{document}
+
