@@ -373,6 +373,29 @@
       position: absolute;
       top: 10px;
       right: 10px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      white-space: nowrap;
+    }
+
+    .video-status.status-relay {
+      background: rgba(16, 185, 129, 0.85); /* TURN - xanh lá */
+    }
+
+    .video-status.status-host {
+      background: rgba(52, 152, 219, 0.85); /* host LAN - xanh dương */
+    }
+
+    .video-status.status-stun {
+      background: rgba(241, 196, 15, 0.9); /* srflx/prflx - vàng */
+      color: #111;
+    }
+
+    .video-status.status-unknown {
+      background: rgba(149, 165, 166, 0.85);
     }
 
     .video-disconnected-overlay {
@@ -1834,11 +1857,33 @@
           candidateType = `${localCandidateType || '?'}/${remoteCandidateType || '?'}`;
         }
 
-        // Show on UI
+        // Global label (shows last updated peer)
         $('candidateType').style.display = 'flex';
         $('candidateTypeValue').textContent = candidateType;
 
-        addLog(`[${peerName}] Candidate: local=${localCandidateType || 'N/A'}, remote=${remoteCandidateType || 'N/A'} → ${candidateType}`, 'success');
+        // Per-peer badge on video tile
+        const statusEl = document.getElementById(`status-${peerName}`);
+        if (statusEl) {
+          let statusClass = 'status-unknown';
+          if (candidateType.startsWith('relay')) {
+            statusClass = 'status-relay';
+          } else if (candidateType.startsWith('host')) {
+            statusClass = 'status-host';
+          } else if (
+            candidateType.startsWith('srflx') ||
+            candidateType.startsWith('prflx')
+          ) {
+            statusClass = 'status-stun';
+          }
+
+          statusEl.textContent = candidateType;
+          statusEl.className = `video-status ${statusClass}`;
+        }
+
+        addLog(
+          `[${peerName}] Candidate: local=${localCandidateType || 'N/A'}, remote=${remoteCandidateType || 'N/A'} → ${candidateType}`,
+          'success'
+        );
 
         // Show stats panel
         updateStatsPanel(peerName, pc);
